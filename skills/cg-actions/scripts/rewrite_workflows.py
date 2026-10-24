@@ -123,7 +123,19 @@ def rewrite_text(text, mapping):
         if target is None or name.lower().startswith("chainguard-actions/"):
             out_lines.append(line)
             continue
-        new_line = f'{m.group("prefix")}{target}'
+        # Only the reference changes. The quoting style and whatever trailed
+        # the value are the author's, and a rewrite that drops them is a wider
+        # diff than the one we promised -- and on a CRLF file, dropping the
+        # trailing CR leaves mixed line endings behind.
+        quote = m.group("q") or ""
+        trailer = m.group("trailer") or ""
+        # One exception: a `# vX.Y.Z` comment beside a SHA pin describes that
+        # SHA. Once the ref is replaced the comment points at the wrong
+        # version, so drop it rather than carry a lie into the diff.
+        if old_ref and _SHA_RE.match(old_ref) and _COMMENT_VER_RE.search(trailer):
+            cr = "\r" if trailer.endswith("\r") else ""
+            trailer = trailer[: trailer.index("#")].rstrip() + cr
+        new_line = f'{m.group("prefix")}{quote}{target}{quote}{trailer}'
         out_lines.append(new_line)
         replacements.append(
             {
@@ -231,7 +243,10 @@ def main(argv=None):
         return 2
 
     for path, rel, out_path in targets:
-        with open(path, "r", encoding="utf-8") as f:
+        # newline="" disables universal-newline translation both ways. Without
+        # it a CRLF workflow is read as LF and written back as LF, so a
+        # one-line reference swap lands as a whole-file diff.
+        with open(path, "r", encoding="utf-8", newline="") as f:
             original = f.read()
         new_text, reps = rewrite_text(original, mapping)
 
@@ -254,7 +269,7 @@ def main(argv=None):
             used_keys.add(r["key"])
 
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
+        with open(out_path, "w", encoding="utf-8", newline="") as f:
             f.write(new_text)
 
         diff = "".join(
