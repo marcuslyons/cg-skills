@@ -1,0 +1,49 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: skill test suites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: chainguard-actions/actions-checkout@37298d8de412b35988dd165ffae45f45b329d365 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Every suite under a skill's scripts/tests/ runs here. They are found
+      # rather than listed, so a new suite is covered the day it lands without
+      # anyone remembering to add it. The runner has Docker and egress, which
+      # the guardener oracle and image-comparison suites both need; the rest
+      # are sh, awk and python3 only.
+      - name: run every suite
+        run: |
+          set -u
+          failed=''
+          for suite in $(find skills -path '*/scripts/tests/test-*.sh' | sort); do
+            echo "::group::$suite"
+            if sh "$suite"; then
+              echo "::endgroup::"
+            else
+              echo "::endgroup::"
+              echo "::error file=$suite::suite failed"
+              failed="$failed $suite"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "failed suites:"
+            for s in $failed; do echo "  $s"; done
+            exit 1
+          fi
+          echo "all suites passed"
